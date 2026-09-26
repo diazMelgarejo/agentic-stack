@@ -471,6 +471,32 @@ class EpisodicMirrorTest(unittest.TestCase):
         ]
         self.assertEqual([row["timestamp"] for row in rows], ["t1", "t2"])
 
+    def test_append_jsonl_once_skips_non_utf8_line(self):
+        import hooks._episodic_io as episodic_io
+
+        path = os.path.join(self.tmp, "once.jsonl")
+        good = {"timestamp": "t1", "action": "manual-stage:abc"}
+        Path(path).write_bytes(b"\xff\n" + (json.dumps(good) + "\n").encode())
+        reused = episodic_io.append_jsonl_once(
+            path,
+            {"timestamp": "t2", "action": "manual-stage:abc"},
+            match_action="manual-stage:abc",
+        )
+        self.assertEqual(reused["timestamp"], "t1")
+        self.assertEqual(Path(path).read_bytes().count(b"\n"), 2)
+
+        only_bad = os.path.join(self.tmp, "bad.jsonl")
+        Path(only_bad).write_bytes(b"\xff not json\n")
+        appended = episodic_io.append_jsonl_once(
+            only_bad,
+            {"timestamp": "t3", "action": "manual-stage:abc"},
+            match_action="manual-stage:abc",
+        )
+        self.assertEqual(appended["timestamp"], "t3")
+        raw = Path(only_bad).read_bytes()
+        self.assertTrue(raw.startswith(b"\xff not json\n"))
+        self.assertIn(b'"timestamp": "t3"', raw)
+
     def test_identical_resumable_temps_publish_once(self):
         mod = _load_learn(self.tmp)
         cid, path = mod.stage(CLAIM, CONDITIONS)

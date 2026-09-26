@@ -50,21 +50,36 @@ def append_jsonl(path: str, entry: dict) -> dict:
     return entry
 
 
+def _json_object_from_line(line: bytes) -> dict | None:
+    """Parse one JSONL line. Undecodable or non-object lines are absent.
+
+    Replacement characters are not used. A damaged line must not become
+    a canonical row just because the substituted text still parses.
+    """
+    try:
+        text = line.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return None
+    if not text:
+        return None
+    try:
+        row = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(row, dict):
+        return None
+    return row
+
+
 def _first_matching_action(raw: bytes, match_action: str) -> dict | None:
     """First JSON object whose action equals `match_action`.
 
-    File order is the canonical order. Blank lines and corrupt lines
-    are skipped. A row with an empty timestamp does not count.
+    File order is the canonical order. Blank lines, non-UTF-8 lines, and
+    corrupt lines are skipped. A row with an empty timestamp does not count.
     """
-    for line in raw.decode("utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(row, dict) or row.get("action") != match_action:
+    for line in raw.splitlines():
+        row = _json_object_from_line(line)
+        if row is None or row.get("action") != match_action:
             continue
         timestamp = row.get("timestamp")
         if isinstance(timestamp, str) and timestamp:
@@ -130,11 +145,8 @@ def has_jsonl_timestamp(path: str, timestamp: str) -> bool:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             for line in handle:
-                try:
-                    row = json.loads(line.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                if isinstance(row, dict) and row.get("timestamp") == timestamp:
+                row = _json_object_from_line(line)
+                if row is not None and row.get("timestamp") == timestamp:
                     return True
             return False
         finally:
