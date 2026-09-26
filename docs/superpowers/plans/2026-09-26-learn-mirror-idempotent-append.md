@@ -120,3 +120,13 @@ Test: the helper flocks before it reads and unlocks after. A temp whose timestam
 ### Not this plan
 
 **Sync errors terminate hooks.** `fsync` inside shared `append_jsonl` is a PR #71 change. `post_execution` and `on_failure` do not catch `OSError`. Fix that on #71. Do not bury it inside `append_jsonl_once`.
+
+## Landed after this plan
+
+Do not implement the sections above again. The user later put the hook catch on the stacked branch as well.
+
+| Gap | SHA on `cursor/mirror-idempotent-append-3352` |
+|---|---|
+| Mirror before temp, idempotent append | `949aa749c7afa65e7791360ab7fca15c921b4c8c` |
+| Locked timestamp scan (`has_jsonl_timestamp`, no file create) | `be684ff8de6bdcfd69ff325405a7f93c6783ad19` |
+| Hook `OSError` catch, `append_jsonl` still raises | `409e7417815bdd00f7fced6cb8ae486df476f856` |

@@ -180,3 +180,13 @@ Greptile's three P1 comments are not all leftovers of this plan.
 Required #71 behavior: a failed `fsync` in `append_jsonl` must not kill `post_execution` or `on_failure`. Learn's own publish path can still treat a mirror `fsync` failure as an error. One way to keep that split is to catch `OSError` from `fsync` only in the two hook entrypoints, after the line has been written, and leave `append_jsonl`'s raise in place for `stage()`. Do not add a candidate lock to solve this.
 
 **Does not stay on #71.** "Recovery deletes active candidates" and "Recovery misses existing evidence" are episodic-lock work. They are specified in `2026-09-26-learn-mirror-idempotent-append.md`.
+
+## Landed after this plan
+
+The hook catch was not pushed onto PR #71. The user put it on the stacked branch with the evidence-read fix. Do not implement either gap again.
+
+| Gap | SHA on `cursor/mirror-idempotent-append-3352` |
+|---|---|
+| Mirror before temp | `949aa749c7afa65e7791360ab7fca15c921b4c8c` |
+| Locked timestamp scan | `be684ff8de6bdcfd69ff325405a7f93c6783ad19` |
+| Hook `OSError` catch | `409e7417815bdd00f7fced6cb8ae486df476f856` |
