@@ -172,8 +172,8 @@ def _one_evidence_id(payload):
     return evidence[0]
 
 
-def _resumable_evidence(temp_path, cid):
-    """Evidence timestamp if this temp is safe to publish, else None."""
+def _resumable_payload(temp_path, cid):
+    """Loaded temp when it is safe to publish, else None."""
     payload = _load_json_object(temp_path)
     if payload is None or payload.get("id") != cid:
         return None
@@ -182,7 +182,15 @@ def _resumable_evidence(temp_path, cid):
         return None
     if not _evidence_landed(_episodic_path(), evidence):
         return None
-    return evidence
+    return payload
+
+
+def _resumable_evidence(temp_path, cid):
+    """Evidence timestamp if this temp is safe to publish, else None."""
+    payload = _resumable_payload(temp_path, cid)
+    if payload is None:
+        return None
+    return _one_evidence_id(payload)
 
 
 def _remove_or_raise(temp_path):
@@ -217,16 +225,21 @@ def _published_evidence(path, cid):
 
 
 def _shared_resumable_evidence(leftovers, cid):
-    """One timestamp when every temp is resumable with that same value."""
-    stamps = []
+    """One timestamp when every temp is resumable and the objects match.
+
+    A shared evidence timestamp is not identity. The same pattern id can
+    still store a different claim spelling or reviewer. Those temps are
+    not one transaction.
+    """
+    payloads = []
     for temp_path in leftovers:
-        evidence = _resumable_evidence(temp_path, cid)
-        if evidence is None:
+        payload = _resumable_payload(temp_path, cid)
+        if payload is None:
             return None
-        stamps.append(evidence)
-    if len(set(stamps)) != 1:
+        payloads.append(payload)
+    if any(payload != payloads[0] for payload in payloads[1:]):
         return None
-    return stamps[0]
+    return _one_evidence_id(payloads[0])
 
 
 def _publish_shared_temps(leftovers, cid, path, evidence):
@@ -255,10 +268,11 @@ def _resolve_leftovers(cid, path):
     never published.
 
     The episodic flock makes the mirror row single-flight for one action.
-    Temp files are not locked. Two callers can still each leave a temp
-    with the same evidence timestamp. Those twins are one transaction:
-    publish one and delete the rest. Temps whose evidence differs stay
-    fail-closed. This function does not add a lock.
+    Temp files are not locked. Two callers can still each leave a temp.
+    Those temps are one transaction only when every loaded object is
+    equal: publish one and delete the rest. A shared timestamp with a
+    different claim or reviewer stays fail-closed, as do temps whose
+    evidence differs. This function does not add a lock.
     """
     leftovers = _leftover_temps(cid)
     if not leftovers:

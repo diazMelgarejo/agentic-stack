@@ -511,6 +511,29 @@ class EpisodicMirrorTest(unittest.TestCase):
         self.assertEqual(_names(mod.CANDIDATES, ".tmp"), [])
         self.assertEqual(_episodic(self.tmp), before)
 
+    def test_shared_timestamp_different_reviewer_stays_fail_closed(self):
+        mod = _load_learn(self.tmp)
+        cid, path = mod.stage(CLAIM, CONDITIONS)
+        published = json.loads(Path(path).read_text())
+        os.remove(path)
+        before = _episodic(self.tmp)
+        other = json.loads(json.dumps(published))
+        other["decisions"][0]["reviewer"] = "other-source"
+        other["claim"] = CLAIM.lower()
+        names = []
+        for suffix, payload in (("a", published), ("b", other)):
+            name = f".{cid}.{suffix}.tmp"
+            names.append(name)
+            Path(os.path.join(mod.CANDIDATES, name)).write_text(
+                json.dumps(payload))
+        with self.assertRaises(OSError) as caught:
+            mod.stage(CLAIM, CONDITIONS)
+        self.assertIn(cid, str(caught.exception))
+        self.assertIn("ambiguous leftover", str(caught.exception))
+        self.assertEqual(_names(mod.CANDIDATES, ".tmp"), sorted(names))
+        self.assertFalse(os.path.isfile(path))
+        self.assertEqual(_episodic(self.tmp), before)
+
     def test_evidence_landed_reads_under_exclusive_lock(self):
         mod = _load_learn(self.tmp)
         import hooks._episodic_io as episodic_io
