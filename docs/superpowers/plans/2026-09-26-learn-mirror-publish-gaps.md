@@ -168,3 +168,15 @@ Existing tests `test_stage_writes_one_episodic_mirror`, `test_evidence_id_resolv
 | `os.replace` raises | JSONL line present. Temp kept. Error text has the path. Next `stage()` publishes that temp and does not append again. |
 | `os.replace` returns, crash before directory `fsync` | Usual rename window. No new protocol. |
 | Unlink fails after mirror failure | Temp kept. Error text says unlink failed and includes the path. Next `stage()` tries delete again because the evidence row is absent. It does not publish that temp. |
+
+---
+
+## Review 5323824586, after this plan shipped on PR #71
+
+Greptile's three P1 comments are not all leftovers of this plan.
+
+**Stays on #71.** `os.fsync` inside shared `append_jsonl` can raise after `flush`. `post_execution.log_execution` and `on_failure` call `append_jsonl` and do not catch `OSError`, so those hook processes die. That regression is in PR #71 (`7a477dd`). Do not move the hook fix onto the idempotent-mirror PR. `append_jsonl_once` is a different function, and the hooks do not call it.
+
+Required #71 behavior: a failed `fsync` in `append_jsonl` must not kill `post_execution` or `on_failure`. Learn's own publish path can still treat a mirror `fsync` failure as an error. One way to keep that split is to catch `OSError` from `fsync` only in the two hook entrypoints, after the line has been written, and leave `append_jsonl`'s raise in place for `stage()`. Do not add a candidate lock to solve this.
+
+**Does not stay on #71.** "Recovery deletes active candidates" and "Recovery misses existing evidence" are episodic-lock work. They are specified in `2026-09-26-learn-mirror-idempotent-append.md`.

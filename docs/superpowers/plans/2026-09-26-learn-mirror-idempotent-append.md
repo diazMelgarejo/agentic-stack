@@ -1,7 +1,9 @@
 # Plan: idempotent manual-stage mirror, no second lock
 
-> Review only until accepted. Stack the code on PR #71
-> (`atomic-01b-episodic-mirror-fail-closed`). Do not retarget #71.
+> Original scope is implemented on stacked PR
+> https://github.com/diazMelgarejo/agentic-stack/pull/3
+> (`949aa74`, base `atomic-01b-episodic-mirror-fail-closed` at `7a477dd`).
+> Do not retarget PR #71. One Greptile gap below is still open on that PR.
 
 **Goal:** A second `stage()` for the same candidate id must not append another `manual-stage:{cid}` row. Do that inside the episodic append, under the flock `append_jsonl` and `auto_dream` already share. Do not add a candidate-directory lock, a journal, or a second lock file.
 
@@ -91,3 +93,30 @@ If any temp is corrupt, evidence-less, or carries a different timestamp, keep to
 - A lock around `CANDIDATES`.
 - Cross-process single-flight of temp creation on Windows, where `fcntl` is absent.
 - Changing auto-dream's rewrite logic.
+- Hook `fsync` failures. Those belong on PR #71. See below.
+
+---
+
+## Greptile review 5323824586
+
+Three P1 comments on PR #71. Routing:
+
+### Already covered here (do not patch #71)
+
+**Recovery deletes active candidates.** On #71, `stage()` writes the temp and then appends the mirror. A second call can see that temp before the row exists, treat it as evidence-less, and delete it. The first call then appends a mirror whose file is gone.
+
+This plan closes that window by appending under the existing flock before any temp exists. PR #3 already does that. A candidate-directory lock on #71 is the wrong fix.
+
+### Still required (not in PR #3 yet)
+
+**Recovery misses existing evidence.** `_evidence_landed` in `learn.py` opens `AGENT_LEARNINGS.jsonl` with no flock. `auto_dream` holds `LOCK_EX`, truncates, and rewrites that file. A retry can observe the truncated file, decide the mirror is absent, delete the temp, and append a new row.
+
+The delete/keep decision has to use the same `LOCK_EX` as `append_jsonl_once`. Add a helper in `.agent/harness/hooks/_episodic_io.py`, for example `episodic_has_timestamp(path, timestamp) -> bool`, that scans parsed `timestamp` fields while the flock is held. `_resumable_evidence` must call that helper. It must not open the JSONL on its own.
+
+If that locked read raises `OSError`, do not delete the temp. A missing proof is not proof of absence when the read itself failed.
+
+Test: the helper flocks before it reads and unlocks after. A temp whose timestamp is present under that lock is not deleted. A temp whose timestamp is absent is still eligible for deletion. Do not simulate this by adding a second lock file.
+
+### Not this plan
+
+**Sync errors terminate hooks.** `fsync` inside shared `append_jsonl` is a PR #71 change. `post_execution` and `on_failure` do not catch `OSError`. Fix that on #71. Do not bury it inside `append_jsonl_once`.
